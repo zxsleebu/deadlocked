@@ -53,7 +53,9 @@ impl CS2 {
             return;
         }
 
-        if config.velocity_check && local_player.velocity(self).length() > config.velocity_threshold
+        if !config.force_shoot_when_sure
+            && config.velocity_check
+            && local_player.velocity(self).length() > config.velocity_threshold
         {
             return;
         }
@@ -81,15 +83,25 @@ impl CS2 {
             }
         }
 
+        if config.force_shoot_when_sure && !self.seed_sync_will_hit(&local_player, &player) {
+            return;
+        }
+
         let mean = (*config.delay.start() + *config.delay.end()) as f32 / 2.0;
         let std_dev = (*config.delay.end() - *config.delay.start()) as f32 / 2.0;
 
         let normal = rand_distr::Normal::new(mean, std_dev).unwrap();
         use rand_distr::Distribution as _;
-        let delay = normal.sample(&mut rng()).max(0.0) as u64;
+        let sampled = normal.sample(&mut rng()).max(0.0) as u64;
+
+        let delay_ms = if config.force_shoot_when_sure {
+            0
+        } else {
+            sampled
+        };
 
         let now = Instant::now();
-        let delay = Duration::from_millis(delay);
+        let delay = Duration::from_millis(delay_ms);
         self.trigger.shot_start = Some(now + delay);
         self.trigger.shot_end = Some(now + delay + Duration::from_millis(config.shot_duration));
     }

@@ -167,6 +167,45 @@ pub struct EntityIdentityOffsets {
     pub size: i32,
 }
 
+// Offsets used by the seed-synced "force shoot when sure" prediction.
+// Every field is optional: setup never fails if one is missing, the feature
+// just degrades to a plain crosshair trigger when the core ones are absent.
+#[derive(Debug, Default)]
+pub struct SeedSyncOffsets {
+    pub weapon_vdata_ptr: Option<u64>,
+
+    // CFiringModeFloat fields serialize as [f32; 2]: primary mode, alternate mode.
+    pub spread: Option<u64>,
+    pub inaccuracy_crouch: Option<u64>,
+    pub inaccuracy_stand: Option<u64>,
+    pub inaccuracy_ladder: Option<u64>,
+    pub inaccuracy_move: Option<u64>,
+    pub max_speed: Option<u64>,
+    pub inaccuracy_jump_initial: Option<u64>,
+    pub inaccuracy_jump_apex: Option<u64>,
+    pub recovery_time_crouch: Option<u64>,
+    pub recovery_time_stand: Option<u64>,
+    pub recovery_time_crouch_final: Option<u64>,
+    pub recovery_time_stand_final: Option<u64>,
+    pub recovery_transition_start: Option<u64>,
+    pub recovery_transition_end: Option<u64>,
+    pub is_revolver: Option<u64>,
+
+    pub weapon_mode: Option<u64>,
+    pub turning_inaccuracy: Option<u64>,
+    pub accuracy_penalty: Option<u64>,
+    pub recoil_index: Option<u64>,
+
+    pub move_type: Option<u64>,
+    pub is_walking: Option<u64>,
+
+    // Convar object addresses; the live value is read at +0x58.
+    pub convar_forcespread: Option<u64>,
+    pub convar_nospread: Option<u64>,
+    pub convar_jump_impulse: Option<u64>,
+    pub convar_shotgun_patterns: Option<u64>,
+}
+
 #[derive(Debug, Default)]
 pub struct Offsets {
     pub library: LibraryOffsets,
@@ -191,4 +230,5 @@ pub struct Offsets {
     pub econ_item_view: EconItemViewOffsets,
     pub planted_c4: PlantedC4Offsets,
     pub entity_identity: EntityIdentityOffsets,
+    pub seed_sync: SeedSyncOffsets,
 }

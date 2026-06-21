@@ -245,6 +245,15 @@ impl App {
                 self.send_config();
             }
 
+            if checkbox_hover(
+                ui,
+                "Force Shoot When Sure",
+                "Predict the next bullet's spread seed and only fire when it is guaranteed to land on the crosshair target, with no humanized delay",
+                &mut self.weapon_config().triggerbot.force_shoot_when_sure,
+            ) {
+                self.send_config();
+            }
+
             if drag(
                 ui,
                 "Hold Duration (ms)",

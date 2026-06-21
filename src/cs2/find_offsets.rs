@@ -229,6 +229,55 @@ impl CS2 {
 
         offsets.entity_identity.size = client.get_class("CEntityIdentity")?.size();
 
+        offsets.seed_sync.weapon_vdata_ptr =
+            client.get("C_BaseEntity", "m_nSubclassID").map(|o| o + 8);
+        offsets.seed_sync.spread = client.get("CCSWeaponBaseVData", "m_flSpread");
+        offsets.seed_sync.inaccuracy_crouch =
+            client.get("CCSWeaponBaseVData", "m_flInaccuracyCrouch");
+        offsets.seed_sync.inaccuracy_stand =
+            client.get("CCSWeaponBaseVData", "m_flInaccuracyStand");
+        offsets.seed_sync.inaccuracy_ladder =
+            client.get("CCSWeaponBaseVData", "m_flInaccuracyLadder");
+        offsets.seed_sync.inaccuracy_move = client.get("CCSWeaponBaseVData", "m_flInaccuracyMove");
+        offsets.seed_sync.max_speed = client.get("CCSWeaponBaseVData", "m_flMaxSpeed");
+        offsets.seed_sync.inaccuracy_jump_initial =
+            client.get("CCSWeaponBaseVData", "m_flInaccuracyJumpInitial");
+        offsets.seed_sync.inaccuracy_jump_apex =
+            client.get("CCSWeaponBaseVData", "m_flInaccuracyJumpApex");
+        offsets.seed_sync.recovery_time_crouch =
+            client.get("CCSWeaponBaseVData", "m_flRecoveryTimeCrouch");
+        offsets.seed_sync.recovery_time_stand =
+            client.get("CCSWeaponBaseVData", "m_flRecoveryTimeStand");
+        offsets.seed_sync.recovery_time_crouch_final =
+            client.get("CCSWeaponBaseVData", "m_flRecoveryTimeCrouchFinal");
+        offsets.seed_sync.recovery_time_stand_final =
+            client.get("CCSWeaponBaseVData", "m_flRecoveryTimeStandFinal");
+        offsets.seed_sync.recovery_transition_start =
+            client.get("CCSWeaponBaseVData", "m_nRecoveryTransitionStartBullet");
+        offsets.seed_sync.recovery_transition_end =
+            client.get("CCSWeaponBaseVData", "m_nRecoveryTransitionEndBullet");
+        offsets.seed_sync.is_revolver = client.get("CCSWeaponBaseVData", "m_bIsRevolver");
+        offsets.seed_sync.weapon_mode = client.get("C_CSWeaponBase", "m_weaponMode");
+        offsets.seed_sync.turning_inaccuracy =
+            client.get("C_CSWeaponBase", "m_flTurningInaccuracy");
+        offsets.seed_sync.accuracy_penalty = client.get("C_CSWeaponBase", "m_fAccuracyPenalty");
+        offsets.seed_sync.recoil_index = client.get("C_CSWeaponBase", "m_iRecoilIndex");
+        offsets.seed_sync.move_type = client.get("C_BaseEntity", "m_MoveType");
+        offsets.seed_sync.is_walking = client.get("C_CSPlayerPawn", "m_bIsWalking");
+        offsets.seed_sync.convar_forcespread = self
+            .process
+            .get_convar(offsets.interface.cvar, "weapon_accuracy_forcespread");
+        offsets.seed_sync.convar_nospread = self
+            .process
+            .get_convar(offsets.interface.cvar, "weapon_accuracy_nospread");
+        offsets.seed_sync.convar_jump_impulse = self
+            .process
+            .get_convar(offsets.interface.cvar, "sv_jump_impulse");
+        offsets.seed_sync.convar_shotgun_patterns = self.process.get_convar(
+            offsets.interface.cvar,
+            "weapon_accuracy_shotgun_spread_patterns",
+        );
+
         utils::debug!("offsets: {:?} ({:?})", offsets, Instant::now() - start);
         Some(offsets)
     }
