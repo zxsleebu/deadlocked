@@ -53,11 +53,16 @@ impl CS2 {
             return;
         }
 
-        if !config.force_shoot_when_sure
-            && config.velocity_check
-            && local_player.velocity(self).length() > config.velocity_threshold
-        {
-            return;
+        if !config.force_shoot_when_sure {
+            if config.velocity_check
+                && local_player.velocity(self).length() > config.velocity_threshold
+            {
+                return;
+            }
+
+            if config.in_air_check && local_player.is_in_air(self) {
+                return;
+            }
         }
 
         let Some(player) = local_player.crosshair_entity(self) else {

@@ -299,6 +299,15 @@ impl App {
             ) {
                 self.send_config();
             }
+
+            if checkbox_hover(
+                ui,
+                "In Air Check",
+                "Only shoot while standing on the ground",
+                &mut self.weapon_config().triggerbot.in_air_check,
+            ) {
+                self.send_config();
+            }
         });
 
         collapsing_open(ui, "RCS", |ui| {
