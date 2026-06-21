@@ -46,7 +46,8 @@ impl CS2 {
             return;
         }
 
-        if config.scope_check
+        if !config.force_shoot_when_sure
+            && config.scope_check
             && local_player.weapon_class(self) == WeaponClass::Sniper
             && !local_player.is_scoped(self)
         {
