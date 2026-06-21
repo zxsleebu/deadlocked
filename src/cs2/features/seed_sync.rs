@@ -13,6 +13,23 @@ static VDATA_WARNED: AtomicBool = AtomicBool::new(false);
 static READY_INFOED: AtomicBool = AtomicBool::new(false);
 static LAST_VERDICT: AtomicI8 = AtomicI8::new(-1);
 
+pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32)] = &[
+    (Bones::Head, Bones::Head, 3.5),
+    (Bones::Neck, Bones::Spine4, 3.5),
+    (Bones::Spine4, Bones::Spine3, 5.5),
+    (Bones::Spine3, Bones::Spine2, 5.5),
+    (Bones::Spine2, Bones::Spine1, 5.5),
+    (Bones::Spine1, Bones::Hip, 5.5),
+    (Bones::LeftShoulder, Bones::LeftElbow, 3.5),
+    (Bones::LeftElbow, Bones::LeftHand, 3.0),
+    (Bones::RightShoulder, Bones::RightElbow, 3.5),
+    (Bones::RightElbow, Bones::RightHand, 3.0),
+    (Bones::LeftHip, Bones::LeftKnee, 4.5),
+    (Bones::LeftKnee, Bones::LeftFoot, 3.5),
+    (Bones::RightHip, Bones::RightKnee, 4.5),
+    (Bones::RightKnee, Bones::RightFoot, 3.5),
+];
+
 struct ValveRng {
     state: i32,
     index: i32,
@@ -620,24 +637,7 @@ impl CS2 {
     }
 
     fn body_capsules(&self, target: &Player) -> Vec<(Vec3, Vec3, f32)> {
-        const CAPSULES: &[(Bones, Bones, f32)] = &[
-            (Bones::Head, Bones::Head, 6.0),
-            (Bones::Neck, Bones::Spine4, 4.5),
-            (Bones::Spine4, Bones::Spine3, 7.0),
-            (Bones::Spine3, Bones::Spine2, 7.0),
-            (Bones::Spine2, Bones::Spine1, 7.0),
-            (Bones::Spine1, Bones::Hip, 7.0),
-            (Bones::LeftShoulder, Bones::LeftElbow, 4.0),
-            (Bones::LeftElbow, Bones::LeftHand, 3.5),
-            (Bones::RightShoulder, Bones::RightElbow, 4.0),
-            (Bones::RightElbow, Bones::RightHand, 3.5),
-            (Bones::LeftHip, Bones::LeftKnee, 5.5),
-            (Bones::LeftKnee, Bones::LeftFoot, 4.5),
-            (Bones::RightHip, Bones::RightKnee, 5.5),
-            (Bones::RightKnee, Bones::RightFoot, 4.5),
-        ];
-
-        CAPSULES
+        SEED_SYNC_CAPSULES
             .iter()
             .map(|(a, b, r)| {
                 let start = target.bone_position(self, a.u64());
