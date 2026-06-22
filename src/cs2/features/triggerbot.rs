@@ -99,7 +99,7 @@ impl CS2 {
                 if !player.visible(self, &local_player) {
                     continue;
                 }
-                if self.seed_sync_check(&state, player) {
+                if self.seed_sync_check(&state, player, config.head_only, config.ignore_legs) {
                     hit_found = true;
                     break;
                 }
@@ -127,7 +127,7 @@ impl CS2 {
             return;
         }
 
-        if config.head_only {
+        if config.head_only && !config.force_shoot_when_sure {
             let head = player.bone_position(self, Bones::Head.u64());
 
             let target_angle = self.angle_to_target(&local_player, &head, &Vec2::ZERO);
@@ -142,7 +142,14 @@ impl CS2 {
             }
         }
 
-        if config.force_shoot_when_sure && !self.seed_sync_will_hit(&local_player, &player) {
+        if config.force_shoot_when_sure
+            && !self.seed_sync_will_hit(
+                &local_player,
+                &player,
+                config.head_only,
+                config.ignore_legs,
+            )
+        {
             return;
         }
 

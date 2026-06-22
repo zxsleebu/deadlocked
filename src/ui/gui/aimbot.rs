@@ -265,6 +265,17 @@ impl App {
                 self.send_config();
             }
 
+            if self.weapon_config().triggerbot.force_shoot_when_sure
+                && checkbox_hover(
+                    ui,
+                    "Ignore Legs",
+                    "Exclude legs and feet from the hit prediction — shots that would only hit the legs are not fired",
+                    &mut self.weapon_config().triggerbot.ignore_legs,
+                )
+            {
+                self.send_config();
+            }
+
             if drag(
                 ui,
                 "Hold Duration (ms)",

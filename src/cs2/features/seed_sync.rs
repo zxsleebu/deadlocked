@@ -34,21 +34,21 @@ static HB_WARN_EMPTY: AtomicBool = AtomicBool::new(false);
 static HB_OK_INFOED: AtomicBool = AtomicBool::new(false);
 static HB_SCAN_DONE: AtomicBool = AtomicBool::new(false);
 
-pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32)] = &[
-    (Bones::Head, Bones::Head, 3.5),
-    (Bones::Neck, Bones::Spine4, 3.5),
-    (Bones::Spine4, Bones::Spine3, 7.0),
-    (Bones::Spine3, Bones::Spine2, 7.0),
-    (Bones::Spine2, Bones::Spine1, 7.0),
-    (Bones::Spine1, Bones::Hip, 7.0),
-    (Bones::LeftShoulder, Bones::LeftElbow, 3.5),
-    (Bones::LeftElbow, Bones::LeftHand, 3.0),
-    (Bones::RightShoulder, Bones::RightElbow, 3.5),
-    (Bones::RightElbow, Bones::RightHand, 3.0),
-    (Bones::LeftHip, Bones::LeftKnee, 4.5),
-    (Bones::LeftKnee, Bones::LeftFoot, 3.5),
-    (Bones::RightHip, Bones::RightKnee, 4.5),
-    (Bones::RightKnee, Bones::RightFoot, 3.5),
+pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32, i32)] = &[
+    (Bones::Head, Bones::Head, 3.5, 1),
+    (Bones::Neck, Bones::Spine4, 3.5, 1),
+    (Bones::Spine4, Bones::Spine3, 7.0, 2),
+    (Bones::Spine3, Bones::Spine2, 7.0, 2),
+    (Bones::Spine2, Bones::Spine1, 7.0, 3),
+    (Bones::Spine1, Bones::Hip, 7.0, 3),
+    (Bones::LeftShoulder, Bones::LeftElbow, 3.5, 4),
+    (Bones::LeftElbow, Bones::LeftHand, 3.0, 4),
+    (Bones::RightShoulder, Bones::RightElbow, 3.5, 5),
+    (Bones::RightElbow, Bones::RightHand, 3.0, 5),
+    (Bones::LeftHip, Bones::LeftKnee, 4.5, 6),
+    (Bones::LeftKnee, Bones::LeftFoot, 3.5, 6),
+    (Bones::RightHip, Bones::RightKnee, 4.5, 7),
+    (Bones::RightKnee, Bones::RightFoot, 3.5, 7),
 ];
 
 const HITBOX_BONE_MAP: [i32; 19] = [
@@ -738,7 +738,7 @@ impl CS2 {
         }
     }
 
-    fn real_hitbox_capsules(&self, target: &Player) -> Option<Vec<(Vec3, Vec3, f32)>> {
+    fn real_hitbox_capsules(&self, target: &Player) -> Option<Vec<(Vec3, Vec3, f32, i32)>> {
         let scene_node: u64 = self
             .process
             .read(target.pawn + self.offsets.pawn.game_scene_node);
@@ -846,6 +846,7 @@ impl CS2 {
             let mins: Vec3 = self.process.read(hb_base + 0x18);
             let maxs: Vec3 = self.process.read(hb_base + 0x24);
             let radius: f32 = self.process.read(hb_base + 0x30);
+            let hitgroup: i32 = self.process.read(hb_base + 0x38);
             if !(0.0..=100.0).contains(&radius) {
                 continue;
             }
@@ -860,7 +861,7 @@ impl CS2 {
             let start_world = bone_pos + rotate_by_quat(bone_rot, mins);
             let end_world = bone_pos + rotate_by_quat(bone_rot, maxs);
 
-            capsules.push((start_world, end_world, radius));
+            capsules.push((start_world, end_world, radius, hitgroup));
         }
 
         if capsules.is_empty() {
@@ -885,12 +886,12 @@ impl CS2 {
 
     pub(crate) fn body_capsules(&self, target: &Player) -> Vec<(Vec3, Vec3, f32)> {
         if let Some(real) = self.real_hitbox_capsules(target) {
-            return real;
+            return real.into_iter().map(|(a, b, r, _)| (a, b, r)).collect();
         }
 
         SEED_SYNC_CAPSULES
             .iter()
-            .map(|(a, b, r)| {
+            .map(|(a, b, r, _)| {
                 let start = target.bone_position(self, a.u64());
                 let end = target.bone_position(self, b.u64());
                 (start, end, *r)
@@ -898,11 +899,58 @@ impl CS2 {
             .collect()
     }
 
-    pub fn seed_sync_will_hit(&self, local: &Player, target: &Player) -> bool {
+    fn body_capsules_filtered(
+        &self,
+        target: &Player,
+        head_only: bool,
+        ignore_legs: bool,
+    ) -> Vec<(Vec3, Vec3, f32)> {
+        if let Some(real) = self.real_hitbox_capsules(target) {
+            return real
+                .into_iter()
+                .filter(|(_, _, _, hg)| {
+                    if head_only {
+                        return *hg == 1;
+                    }
+                    if ignore_legs && (*hg == 6 || *hg == 7) {
+                        return false;
+                    }
+                    true
+                })
+                .map(|(a, b, r, _)| (a, b, r))
+                .collect();
+        }
+
+        SEED_SYNC_CAPSULES
+            .iter()
+            .filter(|(_, _, _, hg)| {
+                if head_only {
+                    return *hg == 1;
+                }
+                if ignore_legs && (*hg == 6 || *hg == 7) {
+                    return false;
+                }
+                true
+            })
+            .map(|(a, b, r, _)| {
+                let start = target.bone_position(self, a.u64());
+                let end = target.bone_position(self, b.u64());
+                (start, end, *r)
+            })
+            .collect()
+    }
+
+    pub fn seed_sync_will_hit(
+        &self,
+        local: &Player,
+        target: &Player,
+        head_only: bool,
+        ignore_legs: bool,
+    ) -> bool {
         let Some(state) = self.seed_sync_prepare(local) else {
             return false;
         };
-        self.seed_sync_check(&state, target)
+        self.seed_sync_check(&state, target, head_only, ignore_legs)
     }
 
     pub fn seed_sync_prepare(&self, local: &Player) -> Option<SeedSyncState> {
@@ -979,8 +1027,14 @@ impl CS2 {
         })
     }
 
-    pub fn seed_sync_check(&self, state: &SeedSyncState, target: &Player) -> bool {
-        let capsules = self.body_capsules(target);
+    pub fn seed_sync_check(
+        &self,
+        state: &SeedSyncState,
+        target: &Player,
+        head_only: bool,
+        ignore_legs: bool,
+    ) -> bool {
+        let capsules = self.body_capsules_filtered(target, head_only, ignore_legs);
 
         let mut verdict = true;
         let mut missed_at = 0;
