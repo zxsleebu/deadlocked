@@ -120,6 +120,7 @@ pub struct TriggerbotConfig {
     pub head_only: bool,
     pub force_shoot_when_sure: bool,
     pub only_when_aiming: bool,
+    pub angle_stability_threshold: f32,
 }
 
 impl Default for TriggerbotConfig {
@@ -138,6 +139,7 @@ impl Default for TriggerbotConfig {
             head_only: false,
             force_shoot_when_sure: false,
             only_when_aiming: true,
+            angle_stability_threshold: 2.0,
         }
     }
 }

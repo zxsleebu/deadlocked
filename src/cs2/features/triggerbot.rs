@@ -19,6 +19,7 @@ pub struct Triggerbot {
     shot_start: Option<Instant>,
     shot_end: Option<Instant>,
     pub active: bool,
+    last_angles: Option<Vec2>,
 }
 
 impl CS2 {
@@ -62,6 +63,20 @@ impl CS2 {
             }
 
             if config.in_air_check && local_player.is_in_air(self) {
+                return;
+            }
+        }
+
+        if config.force_shoot_when_sure {
+            let current_angles = local_player.view_angles(self);
+            let stable = match self.trigger.last_angles {
+                Some(last) => {
+                    angles_to_fov(&last, &current_angles) <= config.angle_stability_threshold
+                }
+                None => false,
+            };
+            self.trigger.last_angles = Some(current_angles);
+            if !stable {
                 return;
             }
         }

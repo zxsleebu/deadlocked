@@ -7,6 +7,7 @@ use crate::cs2::{CS2, bones::Bones, entity::player::Player};
 
 const TWO_PI: f32 = 2.0 * PI;
 const NEEDED_TICKS: i32 = 2;
+const TICK_INTERVAL: f32 = 1.0 / 64.0;
 
 static UNAVAILABLE_WARNED: AtomicBool = AtomicBool::new(false);
 static VDATA_WARNED: AtomicBool = AtomicBool::new(false);
@@ -961,6 +962,7 @@ impl CS2 {
         let view = cmd_angles + aim_punch;
         let (forward, right, up) = angle_vectors(view);
         let eye = local.eye_position(self);
+        let velocity = local.velocity(self);
 
         Some(SeedSyncState {
             cmd_angles,
@@ -970,6 +972,7 @@ impl CS2 {
             inaccuracy,
             spread,
             eye,
+            velocity,
             forward,
             right,
             up,
@@ -982,6 +985,7 @@ impl CS2 {
         let mut verdict = true;
         let mut missed_at = 0;
         for tick_offset in 0..NEEDED_TICKS {
+            let future_eye = state.eye + state.velocity * (tick_offset as f32 * TICK_INTERVAL);
             let seed = spread_seed(
                 state.cmd_angles.x,
                 state.cmd_angles.y,
@@ -999,7 +1003,7 @@ impl CS2 {
 
             let mut hit_any = false;
             for &(start, end, radius) in &capsules {
-                if ray_hits_capsule(state.eye, dir, start, end, radius) {
+                if ray_hits_capsule(future_eye, dir, start, end, radius) {
                     hit_any = true;
                     break;
                 }
@@ -1042,6 +1046,7 @@ pub struct SeedSyncState {
     inaccuracy: f32,
     spread: f32,
     eye: Vec3,
+    velocity: Vec3,
     forward: Vec3,
     right: Vec3,
     up: Vec3,
