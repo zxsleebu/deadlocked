@@ -51,7 +51,7 @@ pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32)] = &[
 ];
 
 const HITBOX_BONE_MAP: [i32; 19] = [
-    7, -1, 1, 2, 3, 4, 5, 17, 20, 18, 21, 19, 22, 11, 15, 10, 9, 14, 13,
+    7, 6, 1, 2, 3, 4, 5, 17, 20, 18, 21, 19, 22, 11, 15, 10, 9, 14, 13,
 ];
 
 fn rotate_by_quat(q: [f32; 4], v: Vec3) -> Vec3 {
@@ -856,24 +856,10 @@ impl CS2 {
             }
             let bone_rot: [f32; 4] = self.process.read(bone_base + 0x10);
 
-            let center_local = (mins + maxs) * 0.5;
-            let center_world = bone_pos + rotate_by_quat(bone_rot, center_local);
+            let start_world = bone_pos + rotate_by_quat(bone_rot, mins);
+            let end_world = bone_pos + rotate_by_quat(bone_rot, maxs);
 
-            let half = (maxs - mins) * 0.5;
-            let ax = half.x.abs();
-            let ay = half.y.abs();
-            let az = half.z.abs();
-            let longest = ax.max(ay).max(az);
-            let axis_local = if ax >= ay && ax >= az {
-                Vec3::new(longest, 0.0, 0.0)
-            } else if ay >= az {
-                Vec3::new(0.0, longest, 0.0)
-            } else {
-                Vec3::new(0.0, 0.0, longest)
-            };
-            let axis_world = rotate_by_quat(bone_rot, axis_local);
-
-            capsules.push((center_world - axis_world, center_world + axis_world, radius));
+            capsules.push((start_world, end_world, radius));
         }
 
         if capsules.is_empty() {

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use egui::{Align2, Color32, FontId, Painter, Stroke, pos2};
+use egui::{Align2, Color32, FontId, Painter, Stroke, pos2, vec2};
 use glam::vec3;
 
 use crate::{
@@ -332,7 +332,8 @@ impl App {
             .max(1.0);
         let px_per_unit = data.window_size.y * 0.5 / distance;
 
-        let stroke = Stroke::new(
+        let fill = Color32::from_rgba_unmultiplied(0, 255, 0, 50);
+        let outline = Stroke::new(
             self.config.hud.line_width,
             Color32::from_rgba_unmultiplied(0, 255, 0, 200),
         );
@@ -346,10 +347,26 @@ impl App {
             };
 
             let r = radius * px_per_unit;
-            painter.line(vec![a_screen, b_screen], stroke);
-            painter.circle_stroke(a_screen, r, stroke);
+
+            let body_stroke = Stroke::new((r * 2.0).max(self.config.hud.line_width), fill);
+            painter.line(vec![a_screen, b_screen], body_stroke);
+            painter.circle_filled(a_screen, r, fill);
             if a != b {
-                painter.circle_stroke(b_screen, r, stroke);
+                painter.circle_filled(b_screen, r, fill);
+            }
+
+            let delta = b_screen - a_screen;
+            let len = delta.length().max(0.001);
+            let perp = vec2(-delta.y / len, delta.x / len);
+            let a1 = a_screen + perp * r;
+            let a2 = a_screen - perp * r;
+            let b1 = b_screen + perp * r;
+            let b2 = b_screen - perp * r;
+            painter.line(vec![a1, b1], outline);
+            painter.line(vec![a2, b2], outline);
+            painter.circle(a_screen, r, Color32::TRANSPARENT, outline);
+            if a != b {
+                painter.circle(b_screen, r, Color32::TRANSPARENT, outline);
             }
         }
     }
