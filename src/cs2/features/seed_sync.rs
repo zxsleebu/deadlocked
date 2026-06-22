@@ -898,6 +898,13 @@ impl CS2 {
     }
 
     pub fn seed_sync_will_hit(&self, local: &Player, target: &Player) -> bool {
+        let Some(state) = self.seed_sync_prepare(local) else {
+            return false;
+        };
+        self.seed_sync_check(&state, target)
+    }
+
+    pub fn seed_sync_prepare(&self, local: &Player) -> Option<SeedSyncState> {
         let missing = self.missing_required_offsets();
         if !missing.is_empty() {
             if !UNAVAILABLE_WARNED.swap(true, Ordering::Relaxed) {
@@ -907,16 +914,14 @@ impl CS2 {
                     missing.join(", ")
                 );
             }
-            return true;
+            return None;
         }
 
-        let Some(weapon) = self.active_weapon_entity(local) else {
-            return false;
-        };
+        let weapon = self.active_weapon_entity(local)?;
 
         let vdata_off = self.offsets.seed_sync.weapon_vdata_ptr.unwrap_or(0);
         let vdata_raw: u64 = self.process.read(weapon + vdata_off);
-        let Some(vdata) = (vdata_raw >= 0x10000).then_some(vdata_raw) else {
+        if vdata_raw < 0x10000 {
             if !VDATA_WARNED.swap(true, Ordering::Relaxed) {
                 utils::warn!(
                     "seed-sync: weapon vdata pointer unreadable (offset {:#x} -> value {:#x}); prediction inactive until it resolves",
@@ -924,8 +929,9 @@ impl CS2 {
                     vdata_raw
                 );
             }
-            return false;
-        };
+            return None;
+        }
+        let vdata = vdata_raw;
 
         if !READY_INFOED.swap(true, Ordering::Relaxed) {
             utils::info!(
@@ -956,25 +962,44 @@ impl CS2 {
         let (forward, right, up) = angle_vectors(view);
         let eye = local.eye_position(self);
 
+        Some(SeedSyncState {
+            cmd_angles,
+            tick,
+            item_def_idx,
+            recoil_index,
+            inaccuracy,
+            spread,
+            eye,
+            forward,
+            right,
+            up,
+        })
+    }
+
+    pub fn seed_sync_check(&self, state: &SeedSyncState, target: &Player) -> bool {
         let capsules = self.body_capsules(target);
 
         let mut verdict = true;
         let mut missed_at = 0;
         for tick_offset in 0..NEEDED_TICKS {
-            let seed = spread_seed(cmd_angles.x, cmd_angles.y, tick - 1 + tick_offset);
+            let seed = spread_seed(
+                state.cmd_angles.x,
+                state.cmd_angles.y,
+                state.tick - 1 + tick_offset,
+            );
             let sv = calculate_spread(
                 seed.wrapping_add(1) as i32,
-                inaccuracy,
-                spread,
-                recoil_index as f32,
-                item_def_idx,
+                state.inaccuracy,
+                state.spread,
+                state.recoil_index as f32,
+                state.item_def_idx,
                 0,
             );
-            let dir = (forward + right * (-sv.x) + up * sv.y).normalize();
+            let dir = (state.forward + state.right * (-sv.x) + state.up * sv.y).normalize();
 
             let mut hit_any = false;
             for &(start, end, radius) in &capsules {
-                if ray_hits_capsule(eye, dir, start, end, radius) {
+                if ray_hits_capsule(state.eye, dir, start, end, radius) {
                     hit_any = true;
                     break;
                 }
@@ -991,7 +1016,12 @@ impl CS2 {
         if LAST_VERDICT.swap(cur, Ordering::Relaxed) != cur {
             let outcome = if verdict { "HIT" } else { "MISS" };
             utils::info!(
-                "seed-sync {outcome}: item={item_def_idx} inaccuracy={inaccuracy:.4} spread={spread:.4} recoil={recoil_index} tick={tick}{}",
+                "seed-sync {outcome}: item={} inaccuracy={:.4} spread={:.4} recoil={} tick={}{}",
+                state.item_def_idx,
+                state.inaccuracy,
+                state.spread,
+                state.recoil_index,
+                state.tick,
                 if verdict {
                     String::new()
                 } else {
@@ -1002,4 +1032,17 @@ impl CS2 {
 
         verdict
     }
+}
+
+pub struct SeedSyncState {
+    cmd_angles: Vec2,
+    tick: i32,
+    item_def_idx: u16,
+    recoil_index: i32,
+    inaccuracy: f32,
+    spread: f32,
+    eye: Vec3,
+    forward: Vec3,
+    right: Vec3,
+    up: Vec3,
 }

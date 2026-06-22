@@ -66,6 +66,37 @@ impl CS2 {
             }
         }
 
+        if config.force_shoot_when_sure && !config.only_when_aiming {
+            let Some(state) = self.seed_sync_prepare(&local_player) else {
+                return;
+            };
+            let is_ffa = self.is_ffa();
+            let local_team = local_player.team(self);
+
+            let mut hit_found = false;
+            for player in &self.players {
+                if !player.is_valid(self) {
+                    continue;
+                }
+                if !is_ffa && player.team(self) == local_team {
+                    continue;
+                }
+                if self.seed_sync_check(&state, player) {
+                    hit_found = true;
+                    break;
+                }
+            }
+
+            if !hit_found {
+                return;
+            }
+
+            let now = Instant::now();
+            self.trigger.shot_start = Some(now);
+            self.trigger.shot_end = Some(now + Duration::from_millis(config.shot_duration));
+            return;
+        }
+
         let Some(player) = local_player.crosshair_entity(self) else {
             return;
         };

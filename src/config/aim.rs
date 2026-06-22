@@ -119,6 +119,7 @@ pub struct TriggerbotConfig {
     pub in_air_check: bool,
     pub head_only: bool,
     pub force_shoot_when_sure: bool,
+    pub only_when_aiming: bool,
 }
 
 impl Default for TriggerbotConfig {
@@ -136,6 +137,7 @@ impl Default for TriggerbotConfig {
             in_air_check: true,
             head_only: false,
             force_shoot_when_sure: false,
+            only_when_aiming: true,
         }
     }
 }

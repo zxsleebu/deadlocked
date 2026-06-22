@@ -254,6 +254,17 @@ impl App {
                 self.send_config();
             }
 
+            if self.weapon_config().triggerbot.force_shoot_when_sure
+                && checkbox_hover(
+                    ui,
+                    "Only When Aiming",
+                    "Require the crosshair to be on the enemy. Disable to fire at any enemy the spread will hit, even if not directly aiming at them",
+                    &mut self.weapon_config().triggerbot.only_when_aiming,
+                )
+            {
+                self.send_config();
+            }
+
             if drag(
                 ui,
                 "Hold Duration (ms)",
