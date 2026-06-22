@@ -289,7 +289,7 @@ fn normalize_angle(a: f32) -> f32 {
 }
 
 fn quantize_angle(a: f32) -> f32 {
-    (normalize_angle(a) * 2.0).floor() * 0.5
+    (normalize_angle(a) * 2.0).round() * 0.5
 }
 
 fn spread_seed(pitch: f32, yaw: f32, tick: i32) -> u32 {
