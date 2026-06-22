@@ -38,6 +38,9 @@ impl App {
             if data.esp_active {
                 self.draw_player(&painter, player, data);
             }
+            if self.config.hud.show_hitboxes {
+                self.draw_hitboxes(&painter, player, data);
+            }
         }
 
         if self.config.player.show_friendlies {

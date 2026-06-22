@@ -13,13 +13,33 @@ static VDATA_WARNED: AtomicBool = AtomicBool::new(false);
 static READY_INFOED: AtomicBool = AtomicBool::new(false);
 static LAST_VERDICT: AtomicI8 = AtomicI8::new(-1);
 
+macro_rules! hb_fail {
+    ($flag:expr, $($args:tt)+) => {
+        if !$flag.swap(true, Ordering::Relaxed) {
+            utils::warn!($($args)+);
+        }
+    };
+}
+
+static HB_WARN_SCENE: AtomicBool = AtomicBool::new(false);
+static HB_WARN_BONE_ARRAY: AtomicBool = AtomicBool::new(false);
+static HB_WARN_MODEL_HANDLE: AtomicBool = AtomicBool::new(false);
+static HB_WARN_CMODEL: AtomicBool = AtomicBool::new(false);
+static HB_WARN_RENDER_MESHES: AtomicBool = AtomicBool::new(false);
+static HB_WARN_HITBOX_DATA: AtomicBool = AtomicBool::new(false);
+static HB_WARN_COUNT: AtomicBool = AtomicBool::new(false);
+static HB_WARN_ARRAY_PTR: AtomicBool = AtomicBool::new(false);
+static HB_WARN_EMPTY: AtomicBool = AtomicBool::new(false);
+static HB_OK_INFOED: AtomicBool = AtomicBool::new(false);
+static HB_SCAN_DONE: AtomicBool = AtomicBool::new(false);
+
 pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32)] = &[
     (Bones::Head, Bones::Head, 3.5),
     (Bones::Neck, Bones::Spine4, 3.5),
-    (Bones::Spine4, Bones::Spine3, 5.5),
-    (Bones::Spine3, Bones::Spine2, 5.5),
-    (Bones::Spine2, Bones::Spine1, 5.5),
-    (Bones::Spine1, Bones::Hip, 5.5),
+    (Bones::Spine4, Bones::Spine3, 7.0),
+    (Bones::Spine3, Bones::Spine2, 7.0),
+    (Bones::Spine2, Bones::Spine1, 7.0),
+    (Bones::Spine1, Bones::Hip, 7.0),
     (Bones::LeftShoulder, Bones::LeftElbow, 3.5),
     (Bones::LeftElbow, Bones::LeftHand, 3.0),
     (Bones::RightShoulder, Bones::RightElbow, 3.5),
@@ -29,6 +49,22 @@ pub const SEED_SYNC_CAPSULES: &[(Bones, Bones, f32)] = &[
     (Bones::RightHip, Bones::RightKnee, 4.5),
     (Bones::RightKnee, Bones::RightFoot, 3.5),
 ];
+
+const HITBOX_BONE_MAP: [i32; 19] = [
+    7, -1, 1, 2, 3, 4, 5, 17, 20, 18, 21, 19, 22, 11, 15, 10, 9, 14, 13,
+];
+
+fn rotate_by_quat(q: [f32; 4], v: Vec3) -> Vec3 {
+    let (qx, qy, qz, qw) = (q[0], q[1], q[2], q[3]);
+    let tx = 2.0 * (qy * v.z - qz * v.y);
+    let ty = 2.0 * (qz * v.x - qx * v.z);
+    let tz = 2.0 * (qx * v.y - qy * v.x);
+    Vec3::new(
+        v.x + qw * tx + (qy * tz - qz * ty),
+        v.y + qw * ty + (qz * tx - qx * tz),
+        v.z + qw * tz + (qx * ty - qy * tx),
+    )
+}
 
 struct ValveRng {
     state: i32,
@@ -636,7 +672,235 @@ impl CS2 {
         1.0_f32.min(total)
     }
 
-    fn body_capsules(&self, target: &Player) -> Vec<(Vec3, Vec3, f32)> {
+    fn scan_scene_node_for_model(&self, scene_node: u64) {
+        if HB_SCAN_DONE.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        utils::warn!(
+            "seed-sync hitbox: scanning scene_node={:#x} for model handle (0x100..0x300, step 8)",
+            scene_node
+        );
+        let mut validated: Option<(u64, u64, i32)> = None;
+        for off in (0x100..0x300).step_by(8) {
+            let val: u64 = self.process.read(scene_node + off);
+            if val == 0 {
+                continue;
+            }
+            // pointer-like: within plausible heap range
+            if !(0x10000..=0x7fffffffffff).contains(&val) {
+                continue;
+            }
+            let cmodel: u64 = self.process.read(val);
+            if cmodel == 0 {
+                continue;
+            }
+            let render_meshes: u64 = self
+                .process
+                .read::<u64>(self.process.read::<u64>(cmodel + 0x78));
+            if render_meshes == 0 {
+                continue;
+            }
+            let hitbox_data: u64 = self.process.read(render_meshes + 0x150);
+            if hitbox_data == 0 {
+                continue;
+            }
+            let count: i32 = self.process.read(hitbox_data + 0x28);
+            if count <= 0 || count > 20 {
+                continue;
+            }
+            utils::warn!(
+                "seed-sync hitbox: SCAN MATCH offset=+{:#x} val={:#x} cmodel={:#x} count={}",
+                off,
+                val,
+                cmodel,
+                count
+            );
+            if validated.is_none() {
+                validated = Some((off, val, count));
+            }
+        }
+        match validated {
+            Some((off, val, count)) => {
+                utils::warn!(
+                    "seed-sync hitbox: SCAN RESULT -> model handle at scene_node+{:#x} (val={:#x}, count={}); set game_scene_node.model = {:#x}",
+                    off,
+                    val,
+                    count,
+                    off
+                );
+            }
+            None => {
+                utils::warn!(
+                    "seed-sync hitbox: SCAN RESULT -> no offset in 0x100..0x300 validated the cmodel chain; model handle may be a CStrongHandle requiring handle-table translation, or lives outside this range"
+                );
+            }
+        }
+    }
+
+    fn real_hitbox_capsules(&self, target: &Player) -> Option<Vec<(Vec3, Vec3, f32)>> {
+        let scene_node: u64 = self
+            .process
+            .read(target.pawn + self.offsets.pawn.game_scene_node);
+        if scene_node == 0 {
+            hb_fail!(
+                HB_WARN_SCENE,
+                "seed-sync hitbox: scene_node null (pawn={:#x})",
+                target.pawn
+            );
+            return None;
+        }
+
+        let bone_array: u64 = self.process.read(
+            scene_node
+                + self.offsets.game_scene_node.model_state
+                + self.offsets.model_state.skeleton_instance,
+        );
+        if bone_array == 0 {
+            hb_fail!(
+                HB_WARN_BONE_ARRAY,
+                "seed-sync hitbox: bone_array null (scene_node={:#x})",
+                scene_node
+            );
+            return None;
+        }
+
+        let model_offset = if self.offsets.game_scene_node.model != 0 {
+            self.offsets.game_scene_node.model
+        } else {
+            0x160
+        };
+        let model_handle: u64 = self.process.read(scene_node + model_offset);
+        if model_handle == 0 {
+            hb_fail!(
+                HB_WARN_MODEL_HANDLE,
+                "seed-sync hitbox: model_handle null (scene_node={:#x} +{:#x})",
+                scene_node,
+                model_offset
+            );
+            self.scan_scene_node_for_model(scene_node);
+            return None;
+        }
+        let cmodel: u64 = self.process.read(model_handle);
+        if cmodel == 0 {
+            hb_fail!(
+                HB_WARN_CMODEL,
+                "seed-sync hitbox: cmodel null (model_handle={:#x})",
+                model_handle
+            );
+            return None;
+        }
+        let render_meshes: u64 = self.process.read(self.process.read::<u64>(cmodel + 0x78));
+        if render_meshes == 0 {
+            hb_fail!(
+                HB_WARN_RENDER_MESHES,
+                "seed-sync hitbox: render_meshes null (cmodel={:#x}, deref cmodel+0x78 twice)",
+                cmodel
+            );
+            return None;
+        }
+        let hitbox_data: u64 = self.process.read(render_meshes + 0x150);
+        if hitbox_data == 0 {
+            hb_fail!(
+                HB_WARN_HITBOX_DATA,
+                "seed-sync hitbox: hitbox_data null (render_meshes={:#x} +0x150)",
+                render_meshes
+            );
+            return None;
+        }
+        let count: i32 = self.process.read(hitbox_data + 0x28);
+        if count <= 0 || count > 20 {
+            hb_fail!(
+                HB_WARN_COUNT,
+                "seed-sync hitbox: count invalid (count={}, hitbox_data={:#x} +0x28)",
+                count,
+                hitbox_data
+            );
+            return None;
+        }
+        let array_ptr: u64 = self.process.read(hitbox_data + 0x30);
+        if array_ptr == 0 {
+            hb_fail!(
+                HB_WARN_ARRAY_PTR,
+                "seed-sync hitbox: array_ptr null (hitbox_data={:#x} +0x30)",
+                hitbox_data
+            );
+            return None;
+        }
+
+        let origin: Vec3 = self
+            .process
+            .read(scene_node + self.offsets.game_scene_node.origin);
+
+        let mut capsules = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            if i as usize >= HITBOX_BONE_MAP.len() {
+                break;
+            }
+            let bone = HITBOX_BONE_MAP[i as usize];
+            if bone < 0 {
+                continue;
+            }
+
+            let hb_base = array_ptr + (i as u64) * 0x70;
+            let mins: Vec3 = self.process.read(hb_base + 0x18);
+            let maxs: Vec3 = self.process.read(hb_base + 0x24);
+            let radius: f32 = self.process.read(hb_base + 0x30);
+            if !(0.0..=100.0).contains(&radius) {
+                continue;
+            }
+
+            let bone_base = bone_array + (bone as u64) * 32;
+            let bone_pos: Vec3 = self.process.read(bone_base);
+            if bone_pos.distance(origin) > 256.0 {
+                continue;
+            }
+            let bone_rot: [f32; 4] = self.process.read(bone_base + 0x10);
+
+            let center_local = (mins + maxs) * 0.5;
+            let center_world = bone_pos + rotate_by_quat(bone_rot, center_local);
+
+            let half = (maxs - mins) * 0.5;
+            let ax = half.x.abs();
+            let ay = half.y.abs();
+            let az = half.z.abs();
+            let longest = ax.max(ay).max(az);
+            let axis_local = if ax >= ay && ax >= az {
+                Vec3::new(longest, 0.0, 0.0)
+            } else if ay >= az {
+                Vec3::new(0.0, longest, 0.0)
+            } else {
+                Vec3::new(0.0, 0.0, longest)
+            };
+            let axis_world = rotate_by_quat(bone_rot, axis_local);
+
+            capsules.push((center_world - axis_world, center_world + axis_world, radius));
+        }
+
+        if capsules.is_empty() {
+            hb_fail!(
+                HB_WARN_EMPTY,
+                "seed-sync hitbox: parsed 0 valid capsules (count={count}, array_ptr={array_ptr:#x})",
+            );
+            return None;
+        }
+
+        if !HB_OK_INFOED.swap(true, Ordering::Relaxed) {
+            utils::info!(
+                "seed-sync hitbox: reading {} real capsule(s) (array_ptr={:#x}, model_offset={:#x})",
+                capsules.len(),
+                array_ptr,
+                model_offset
+            );
+        }
+
+        Some(capsules)
+    }
+
+    pub(crate) fn body_capsules(&self, target: &Player) -> Vec<(Vec3, Vec3, f32)> {
+        if let Some(real) = self.real_hitbox_capsules(target) {
+            return real;
+        }
+
         SEED_SYNC_CAPSULES
             .iter()
             .map(|(a, b, r)| {

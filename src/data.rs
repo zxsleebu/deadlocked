@@ -54,6 +54,7 @@ pub struct PlayerData {
     pub color: i32,
     pub rotation: f32,
     pub sound: Option<SoundType>,
+    pub hitbox_capsules: Vec<(Vec3, Vec3, f32)>,
 }
 
 #[derive(Debug, Default, Serialize)]

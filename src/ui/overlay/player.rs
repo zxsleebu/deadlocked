@@ -324,6 +324,36 @@ impl App {
         painter.circle_stroke(pos, height / 2.0, stroke);
     }
 
+    pub fn draw_hitboxes(&self, painter: &Painter, player: &PlayerData, data: &Data) {
+        let distance = data
+            .local_player
+            .position
+            .distance(player.position)
+            .max(1.0);
+        let px_per_unit = data.window_size.y * 0.5 / distance;
+
+        let stroke = Stroke::new(
+            self.config.hud.line_width,
+            Color32::from_rgba_unmultiplied(0, 255, 0, 200),
+        );
+
+        for &(a, b, radius) in &player.hitbox_capsules {
+            let Some(a_screen) = world_to_screen(&a, data) else {
+                continue;
+            };
+            let Some(b_screen) = world_to_screen(&b, data) else {
+                continue;
+            };
+
+            let r = radius * px_per_unit;
+            painter.line(vec![a_screen, b_screen], stroke);
+            painter.circle_stroke(a_screen, r, stroke);
+            if a != b {
+                painter.circle_stroke(b_screen, r, stroke);
+            }
+        }
+    }
+
     pub fn update_player_sounds(&mut self) {
         let data = self.data.lock();
 

@@ -19,6 +19,7 @@ pub struct HudConfig {
     pub font_size: f32,
     pub icon_size: f32,
     pub debug: bool,
+    pub show_hitboxes: bool,
 }
 
 impl Default for HudConfig {
@@ -37,6 +38,7 @@ impl Default for HudConfig {
             font_size: 16.0,
             icon_size: 20.0,
             debug: false,
+            show_hitboxes: false,
         }
     }
 }

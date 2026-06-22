@@ -76,6 +76,7 @@ pub struct GameSceneNodeOffsets {
     pub dormant: u64,     // bool (m_bDormant)
     pub origin: u64,      // Vec3 (m_vecAbsOrigin)
     pub model_state: u64, // Pointer -> ModelState (m_modelState)
+    pub model: u64,       // CStrongHandle (m_pModel) — 0 = unresolved, falls back to 0x160
 }
 
 #[derive(Debug, Default)]

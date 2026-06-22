@@ -168,6 +168,12 @@ impl CS2 {
                 continue;
             }
 
+            let hitbox_capsules = if config.hud.show_hitboxes {
+                self.body_capsules(player)
+            } else {
+                Vec::new()
+            };
+
             let player_data = PlayerData {
                 steam_id: player.steam_id(self),
                 health: player.health(self),
@@ -185,6 +191,7 @@ impl CS2 {
                 color: player.color(self),
                 rotation: player.rotation(self),
                 sound: player.is_making_sound(self),
+                hitbox_capsules,
             };
 
             if !is_ffa && player.team(self) == local_team {
@@ -222,6 +229,7 @@ impl CS2 {
             color: local_player.color(self),
             rotation: local_player.rotation(self),
             sound: None,
+            hitbox_capsules: Vec::new(),
         };
 
         data.entities.clear();

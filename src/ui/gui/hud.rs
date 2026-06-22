@@ -197,6 +197,10 @@ impl App {
                 self.send_config();
             }
 
+            if checkbox(ui, "Show Hitboxes", &mut self.config.hud.show_hitboxes) {
+                self.send_config();
+            }
+
             if drag(
                 ui,
                 "FPS",
