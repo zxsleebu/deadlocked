@@ -9,7 +9,7 @@ use super::{CS2, weapon_class::WeaponClass};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Player {
-    controller: u64,
+    pub(crate) controller: u64,
     pub(crate) pawn: u64,
 }
 

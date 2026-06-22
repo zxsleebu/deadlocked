@@ -523,9 +523,9 @@ impl CS2 {
             .unwrap_or(default)
     }
 
-    fn tick_count(&self) -> i32 {
-        let global_vars: u64 = self.process.read(self.offsets.direct.global_vars);
-        self.process.read(global_vars + 0x44)
+    fn tick_count(&self, local: &Player) -> i32 {
+        self.process
+            .read(local.controller + self.offsets.controller.tick_base)
     }
 
     fn compute_inaccuracy(&self, local_pawn: u64, weapon: u64, vdata: u64) -> f32 {
@@ -938,7 +938,7 @@ impl CS2 {
         let so = &self.offsets.seed_sync;
 
         let cmd_angles = local.view_angles(self);
-        let tick = self.tick_count();
+        let tick = self.tick_count(local);
         let item_def_idx: u16 = self.process.read(
             weapon
                 + self.offsets.weapon.attribute_manager
