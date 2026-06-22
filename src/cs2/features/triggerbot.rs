@@ -96,6 +96,9 @@ impl CS2 {
                 if !is_ffa && player.team(self) == local_team {
                     continue;
                 }
+                if !player.visible(self, &local_player) {
+                    continue;
+                }
                 if self.seed_sync_check(&state, player) {
                     hit_found = true;
                     break;
@@ -117,6 +120,10 @@ impl CS2 {
         };
 
         if !self.is_ffa() && player.team(self) == local_player.team(self) {
+            return;
+        }
+
+        if !player.visible(self, &local_player) {
             return;
         }
 
