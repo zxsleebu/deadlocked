@@ -1,0 +1,457 @@
+use std::time::{Duration, Instant};
+
+use egui::{Color32, Painter, Pos2, Stroke, pos2, vec2};
+use glam::vec3;
+
+use crate::{
+    config::player::{BoxMode, DrawMode},
+    config::text::TextPosition,
+    cs2::bones::Bones,
+    data::{Data, PlayerData, SoundType},
+    math::world_to_screen,
+    ui::app::AppState,
+};
+
+impl AppState {
+    pub fn draw_player(&self, painter: &Painter, player: &PlayerData, data: &Data) {
+        if self.config.player.visible_only && !player.visible {
+            return;
+        }
+
+        let sound = self.player_sounds.get(&player.steam_id);
+        let sound_alpha = if self.config.player.sound.enabled {
+            self.player_sound_alpha(player, sound, data)
+        } else {
+            None
+        };
+
+        self.player_box(painter, player, data, sound_alpha);
+        self.skeleton(painter, player, data, sound_alpha);
+    }
+
+    fn player_sound_alpha(
+        &self,
+        player: &PlayerData,
+        sound: Option<&(Instant, SoundType)>,
+        data: &Data,
+    ) -> Option<f32> {
+        if self.config.player.sound.show_visible && player.visible {
+            return Some(1.0);
+        }
+
+        let Some((time, sound)) = sound else {
+            return Some(0.0);
+        };
+
+        let local_player = &data.local_player;
+        let max_distance = match sound {
+            SoundType::Footstep => self.config.player.sound.footstep_diameter,
+            SoundType::Gunshot => self.config.player.sound.gunshot_diameter,
+            SoundType::Weapon => self.config.player.sound.weapon_diameter,
+        };
+        if local_player.position.distance(player.position) > max_distance {
+            return Some(0.0);
+        }
+
+        if time.elapsed() > self.total_sound_duration() {
+            return Some(0.0);
+        }
+
+        Some(
+            1.0 - ((time.elapsed().as_secs_f32() - self.config.player.sound.fadeout_start)
+                / self.config.player.sound.fadeout_duration),
+        )
+    }
+
+    fn total_sound_duration(&self) -> Duration {
+        Duration::from_secs_f32(
+            self.config.player.sound.fadeout_start + self.config.player.sound.fadeout_duration,
+        )
+    }
+
+    fn alpha(color: Color32, alpha: f32) -> Color32 {
+        Color32::from_rgba_unmultiplied(
+            color.r(),
+            color.g(),
+            color.b(),
+            (alpha.clamp(0.0, 1.0) * 255.0) as u8,
+        )
+    }
+
+    fn player_box(&self, painter: &Painter, player: &PlayerData, data: &Data, alpha: Option<f32>) {
+        let alpha = match alpha {
+            Some(alpha) => alpha.clamp(0.0, 1.0),
+            None => 1.0,
+        };
+        let distance = data
+            .local_player
+            .position
+            .distance(player.position)
+            .max(1.0);
+
+        let esp_scale = (500.0 / distance).clamp(0.4, 1.0);
+        let line_width = self.config.hud.line_width * esp_scale;
+
+        let health_color =
+            self.health_color(player.health, self.config.player.box_visible_color.a());
+        let mut color = match &self.config.player.draw_box {
+            DrawMode::None => health_color,
+            DrawMode::Health => health_color,
+            DrawMode::Color => {
+                if player.visible {
+                    self.config.player.box_visible_color
+                } else {
+                    self.config.player.box_invisible_color
+                }
+            }
+        };
+
+        color = Self::alpha(color, alpha);
+
+        let stroke = Stroke::new(line_width, color);
+
+        let Some((tl, br)) = self.skeleton_bounds(player, data) else {
+            return;
+        };
+        let tr = pos2(br.x, tl.y);
+        let bl = pos2(tl.x, br.y);
+        let half_width = (br.x - tl.x) / 2.0;
+        let qw = half_width - 2.0;
+        let ew = qw / 2.0;
+
+        if self.config.player.draw_box != DrawMode::None {
+            if self.config.player.box_mode == BoxMode::Gap {
+                painter.line(
+                    vec![pos2(tl.x + ew, tl.y), tl, pos2(tl.x, tl.y + qw)],
+                    stroke,
+                );
+                painter.line(
+                    vec![pos2(tr.x - ew, tl.y), tr, pos2(tr.x, tr.y + qw)],
+                    stroke,
+                );
+                painter.line(
+                    vec![pos2(bl.x + ew, bl.y), bl, pos2(bl.x, bl.y - qw)],
+                    stroke,
+                );
+                painter.line(
+                    vec![pos2(br.x - ew, bl.y), br, pos2(br.x, br.y - qw)],
+                    stroke,
+                );
+            } else {
+                painter.rect(
+                    egui::Rect::from_min_max(tl, br),
+                    0,
+                    Color32::TRANSPARENT,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+            }
+        }
+
+        // health bar
+        if self.config.player.health_bar {
+            let x = bl.x - line_width * 2.0;
+            let delta = bl.y - tl.y;
+            painter.line(
+                vec![
+                    pos2(x, bl.y),
+                    pos2(x, bl.y - (delta * player.health as f32 / 100.0)),
+                ],
+                Stroke::new(line_width, Self::alpha(health_color, alpha)),
+            );
+        }
+
+        if self.config.player.armor_bar && player.armor > 0 {
+            let x = bl.x
+                - line_width
+                    * if self.config.player.health_bar {
+                        4.0
+                    } else {
+                        2.0
+                    };
+            let delta = bl.y - tl.y;
+            painter.line(
+                vec![
+                    pos2(x, bl.y),
+                    pos2(x, bl.y - (delta * player.armor as f32 / 100.0)),
+                ],
+                Stroke::new(line_width, Self::alpha(Color32::BLUE, alpha)),
+            );
+        }
+
+        let pad = 4.0 * esp_scale;
+        let mut offset = 0.0;
+
+        if self.config.player.player_name {
+            let cat = &self.config.hud.overlay_text.player_name;
+            let fs = cat.font_size * esp_scale;
+            let anchor = self.box_anchor(tl, tr, bl, br, cat.position, pad, offset);
+            self.text_sized(
+                painter,
+                &player.name,
+                anchor,
+                cat.align.to_align2(),
+                Self::alpha(cat.color, alpha),
+                fs,
+            );
+            offset += fs;
+        }
+
+        if self.config.player.tags {
+            let cat = &self.config.hud.overlay_text.player_tags;
+            let fs = cat.font_size * esp_scale;
+            let anchor = self.box_anchor(tl, tr, bl, br, cat.position, pad, offset);
+            if player.has_defuser {
+                self.text_sized(
+                    painter,
+                    "\u{e00f}",
+                    anchor,
+                    cat.align.to_align2(),
+                    Self::alpha(cat.color, alpha),
+                    fs,
+                );
+                offset += fs;
+            }
+            if player.has_helmet {
+                let anchor = self.box_anchor(tl, tr, bl, br, cat.position, pad, offset);
+                self.text_sized(
+                    painter,
+                    "\u{e017}",
+                    anchor,
+                    cat.align.to_align2(),
+                    Self::alpha(cat.color, alpha),
+                    fs,
+                );
+                offset += fs;
+            }
+            if player.has_bomb {
+                let anchor = self.box_anchor(tl, tr, bl, br, cat.position, pad, offset);
+                self.text_sized(
+                    painter,
+                    "\u{e01e}",
+                    anchor,
+                    cat.align.to_align2(),
+                    Self::alpha(cat.color, alpha),
+                    fs,
+                );
+            }
+        }
+
+        if self.config.player.weapon_icon {
+            let icon_cat = &self.config.hud.overlay_text.weapon_icon;
+            let ammo_cat = &self.config.hud.overlay_text.ammo_text;
+            let ifs = icon_cat.font_size * esp_scale;
+            let afs = ammo_cat.font_size * esp_scale;
+            let icon_anchor = self.box_anchor(tl, tr, bl, br, icon_cat.position, 0.0, 0.0);
+            self.text_sized(
+                painter,
+                player.weapon.to_icon(),
+                icon_anchor,
+                icon_cat.align.to_align2(),
+                Self::alpha(icon_cat.color, alpha),
+                ifs,
+            );
+            if player.ammo.0 >= 0 {
+                let ammo_anchor = self.box_anchor(tl, tr, bl, br, ammo_cat.position, 0.0, afs);
+                self.text_sized(
+                    painter,
+                    format!("{}/{}", player.ammo.0, player.ammo.1),
+                    ammo_anchor,
+                    ammo_cat.align.to_align2(),
+                    Self::alpha(ammo_cat.color, alpha),
+                    afs,
+                );
+            }
+        }
+    }
+
+    fn skeleton(&self, painter: &Painter, player: &PlayerData, data: &Data, alpha: Option<f32>) {
+        let distance = data
+            .local_player
+            .position
+            .distance(player.position)
+            .max(1.0);
+        let esp_scale = (500.0 / distance).clamp(0.25, 1.0);
+
+        let mut color = match &self.config.player.draw_skeleton {
+            DrawMode::None => return,
+            DrawMode::Health => {
+                self.health_color(player.health, self.config.player.skeleton_color.a())
+            }
+            DrawMode::Color => self.config.player.skeleton_color,
+        };
+        if let Some(alpha) = alpha {
+            color = Self::alpha(color, alpha);
+        }
+        let stroke = Stroke::new(self.config.hud.line_width * esp_scale, color);
+
+        for (a, b) in &Bones::CONNECTIONS {
+            let Some(a) = player.bones.get(a) else {
+                continue;
+            };
+            let Some(b) = player.bones.get(b) else {
+                continue;
+            };
+
+            let Some(a) = world_to_screen(a, data) else {
+                continue;
+            };
+            let Some(b) = world_to_screen(b, data) else {
+                continue;
+            };
+
+            painter.line(vec![a, b], stroke);
+        }
+
+        // head circle
+        if !self.config.player.head_circle {
+            return;
+        }
+        let Some(neck) = player.bones.get(&Bones::Neck) else {
+            return;
+        };
+        let Some(spine) = player.bones.get(&Bones::Spine3) else {
+            return;
+        };
+
+        let Some(neck) = world_to_screen(neck, data) else {
+            return;
+        };
+        let Some(spine) = world_to_screen(spine, data) else {
+            return;
+        };
+
+        let height = spine.y - neck.y;
+        let pos = pos2(neck.x - (spine.x - neck.x) / 2.0, neck.y - height / 2.0);
+        painter.circle_stroke(pos, height / 2.0, stroke);
+    }
+
+    pub fn draw_hitboxes(&self, painter: &Painter, player: &PlayerData, data: &Data) {
+        let distance = data
+            .local_player
+            .position
+            .distance(player.position)
+            .max(1.0);
+        let px_per_unit = data.window_size.y * 0.5 / distance;
+
+        let fill = Color32::from_rgba_unmultiplied(0, 255, 0, 50);
+        let outline = Stroke::new(
+            self.config.hud.line_width,
+            Color32::from_rgba_unmultiplied(0, 255, 0, 200),
+        );
+
+        for &(a, b, radius) in &player.hitbox_capsules {
+            let Some(a_screen) = world_to_screen(&a, data) else {
+                continue;
+            };
+            let Some(b_screen) = world_to_screen(&b, data) else {
+                continue;
+            };
+
+            let r = radius * px_per_unit;
+
+            let body_stroke = Stroke::new((r * 2.0).max(self.config.hud.line_width), fill);
+            painter.line(vec![a_screen, b_screen], body_stroke);
+            painter.circle_filled(a_screen, r, fill);
+            if a != b {
+                painter.circle_filled(b_screen, r, fill);
+            }
+
+            let delta = b_screen - a_screen;
+            let len = delta.length().max(0.001);
+            let perp = vec2(-delta.y / len, delta.x / len);
+            let a1 = a_screen + perp * r;
+            let a2 = a_screen - perp * r;
+            let b1 = b_screen + perp * r;
+            let b2 = b_screen - perp * r;
+            painter.line(vec![a1, b1], outline);
+            painter.line(vec![a2, b2], outline);
+            painter.circle(a_screen, r, Color32::TRANSPARENT, outline);
+            if a != b {
+                painter.circle(b_screen, r, Color32::TRANSPARENT, outline);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn box_anchor(
+        &self,
+        tl: Pos2,
+        tr: Pos2,
+        bl: Pos2,
+        br: Pos2,
+        position: TextPosition,
+        pad: f32,
+        offset: f32,
+    ) -> Pos2 {
+        let top = pos2((tl.x + tr.x) / 2.0, tl.y);
+        let bottom = pos2((bl.x + br.x) / 2.0, bl.y);
+        let center = pos2((tl.x + br.x) / 2.0, (tl.y + bl.y) / 2.0);
+        let center_left = pos2(tl.x, (tl.y + bl.y) / 2.0);
+        let center_right = pos2(tr.x, (tr.y + br.y) / 2.0);
+        match position {
+            TextPosition::TopLeft => pos2(tl.x + pad, tl.y + offset),
+            TextPosition::TopCenter => pos2(top.x, tl.y + offset),
+            TextPosition::TopRight => pos2(tr.x + pad, tr.y + offset),
+            TextPosition::CenterLeft => pos2(center_left.x + pad, center_left.y + offset),
+            TextPosition::Center => pos2(center.x, center.y + offset),
+            TextPosition::CenterRight => pos2(center_right.x + pad, center_right.y + offset),
+            TextPosition::BottomLeft => pos2(bl.x + pad, bl.y + offset),
+            TextPosition::BottomCenter => pos2(bottom.x, bl.y + offset),
+            TextPosition::BottomRight => pos2(br.x + pad, bl.y + offset),
+        }
+    }
+
+    fn skeleton_bounds(&self, player: &PlayerData, data: &Data) -> Option<(Pos2, Pos2)> {
+        let mut points = Vec::with_capacity(Bones::CONNECTIONS.len() * 2);
+        for (a, b) in &Bones::CONNECTIONS {
+            for bone in [a, b] {
+                if let Some(world) = player.bones.get(bone)
+                    && let Some(screen) = world_to_screen(world, data)
+                {
+                    points.push(screen);
+                }
+            }
+        }
+
+        if points.is_empty() {
+            let midpoint = (player.position + player.head) / 2.0;
+            let height = (player.head.z - player.position.z + 24.0).max(1.0);
+            let half = height / 2.0;
+            let top = midpoint + vec3(0.0, 0.0, half);
+            let bottom = midpoint - vec3(0.0, 0.0, half);
+            let top = world_to_screen(&top, data)?;
+            let bottom = world_to_screen(&bottom, data)?;
+            let hh = (bottom.y - top.y).max(1.0);
+            let hw = hh / 4.0;
+            return Some((pos2(top.x - hw, top.y), pos2(bottom.x + hw, bottom.y)));
+        }
+
+        let min_x = points.iter().map(|p| p.x).reduce(f32::min)?;
+        let max_x = points.iter().map(|p| p.x).reduce(f32::max)?;
+        let min_y = points.iter().map(|p| p.y).reduce(f32::min)?;
+        let max_y = points.iter().map(|p| p.y).reduce(f32::max)?;
+
+        let mx = (max_x - min_x) * 0.1;
+        let my = (max_y - min_y) * 0.1;
+
+        Some((pos2(min_x - mx, min_y - my), pos2(max_x + mx, max_y + my)))
+    }
+
+    pub fn update_player_sounds(&mut self) {
+        let data = self.data.lock();
+
+        for player in &data.players {
+            let Some(sound) = &player.sound else {
+                continue;
+            };
+
+            self.player_sounds
+                .insert(player.steam_id, (Instant::now(), *sound));
+        }
+
+        let total_duration = self.total_sound_duration();
+        self.player_sounds
+            .retain(|_, (time, _)| time.elapsed() < total_duration);
+    }
+}
