@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use glam::Vec2;
 use rand::rng;
@@ -14,15 +17,115 @@ use crate::{
     os::mouse::Mouse,
 };
 
-#[derive(Default)]
 pub struct Triggerbot {
     shot_start: Option<Instant>,
     shot_end: Option<Instant>,
     pub active: bool,
     last_angles: Option<Vec2>,
+    pending_seed_shot: Option<PendingSeedShot>,
+    seed_tick_delays: VecDeque<i32>,
+    pub(crate) seed_tick_offset: i32,
+    seed_timing_calibrated: bool,
+}
+
+#[derive(Clone, Copy)]
+struct PendingSeedShot {
+    marker: super::seed_sync::SeedSyncShotMarker,
+    started_at: Instant,
+}
+
+impl Default for Triggerbot {
+    fn default() -> Self {
+        Self {
+            shot_start: None,
+            shot_end: None,
+            active: false,
+            last_angles: None,
+            pending_seed_shot: None,
+            seed_tick_delays: VecDeque::with_capacity(9),
+            seed_tick_offset: -1,
+            seed_timing_calibrated: false,
+        }
+    }
 }
 
 impl CS2 {
+    fn update_seed_sync_calibration(&mut self) {
+        let Some(pending) = self.trigger.pending_seed_shot else {
+            return;
+        };
+
+        if pending.started_at.elapsed() > Duration::from_millis(500) {
+            self.trigger.pending_seed_shot = None;
+            return;
+        }
+
+        let Some(local_player) = Player::local_player(self) else {
+            return;
+        };
+        let Some(current) = self.seed_sync_shot_marker(&local_player) else {
+            return;
+        };
+        if current.weapon != pending.marker.weapon {
+            self.trigger.pending_seed_shot = None;
+            return;
+        }
+
+        let shot_detected = current.clip_ammo < pending.marker.clip_ammo
+            || current.recoil_index > pending.marker.recoil_index;
+        if !shot_detected {
+            return;
+        }
+
+        let delay = (current.tick - pending.marker.tick).clamp(0, 6);
+        if self.trigger.seed_tick_delays.len() == 9 {
+            self.trigger.seed_tick_delays.pop_front();
+        }
+        self.trigger.seed_tick_delays.push_back(delay);
+
+        let mut sorted: Vec<i32> = self.trigger.seed_tick_delays.iter().copied().collect();
+        sorted.sort_unstable();
+        let median_delay = sorted[sorted.len() / 2];
+        let calibrated_offset = (median_delay - 1).clamp(-1, 3);
+        let previous_offset = self.trigger.seed_tick_offset;
+        self.trigger.pending_seed_shot = None;
+
+        if self.trigger.seed_tick_delays.len() < 3 {
+            utils::debug!(
+                "seed-sync timing warm-up: press_tick={} detected_tick={} delay={} ({}/3 samples)",
+                pending.marker.tick,
+                current.tick,
+                delay,
+                self.trigger.seed_tick_delays.len()
+            );
+            return;
+        }
+
+        let was_calibrated = self.trigger.seed_timing_calibrated;
+        self.trigger.seed_tick_offset = calibrated_offset;
+        self.trigger.seed_timing_calibrated = true;
+        if !was_calibrated || calibrated_offset != previous_offset {
+            utils::info!(
+                "seed-sync timing calibrated: press_tick={} detected_tick={} delay={} seed_window={}..{} ({} samples)",
+                pending.marker.tick,
+                current.tick,
+                delay,
+                calibrated_offset,
+                calibrated_offset + super::seed_sync::NEEDED_TICKS - 1,
+                self.trigger.seed_tick_delays.len()
+            );
+        } else {
+            utils::debug!(
+                "seed-sync timing sample: press_tick={} detected_tick={} delay={} seed_window={}..{}",
+                pending.marker.tick,
+                current.tick,
+                delay,
+                calibrated_offset,
+                calibrated_offset + super::seed_sync::NEEDED_TICKS - 1
+            );
+        }
+    }
+
     pub fn triggerbot(&mut self, config: &Config) {
         let hotkey = config.aim.triggerbot_hotkey;
         let config = self.triggerbot_config(config);
@@ -173,11 +276,19 @@ impl CS2 {
     }
 
     pub fn triggerbot_shoot(&mut self, mouse: &mut Mouse) {
+        self.update_seed_sync_calibration();
+
         let now = Instant::now();
 
         if let Some(shot_time) = self.trigger.shot_start
             && now >= shot_time
         {
+            self.trigger.pending_seed_shot = Player::local_player(self)
+                .and_then(|local| self.seed_sync_shot_marker(&local))
+                .map(|marker| PendingSeedShot {
+                    marker,
+                    started_at: now,
+                });
             mouse.left_press();
             self.trigger.shot_start = None;
         }

@@ -6,12 +6,14 @@ use glam::{Vec2, Vec3};
 use crate::cs2::{CS2, bones::Bones, entity::player::Player};
 
 const TWO_PI: f32 = 2.0 * PI;
-const NEEDED_TICKS: i32 = 2;
+pub(crate) const NEEDED_TICKS: i32 = 2;
 const TICK_INTERVAL: f32 = 1.0 / 64.0;
 
 static UNAVAILABLE_WARNED: AtomicBool = AtomicBool::new(false);
 static VDATA_WARNED: AtomicBool = AtomicBool::new(false);
 static READY_INFOED: AtomicBool = AtomicBool::new(false);
+static COMMAND_ANGLES_INFOED: AtomicBool = AtomicBool::new(false);
+static COMMAND_ANGLES_FALLBACK_WARNED: AtomicBool = AtomicBool::new(false);
 static LAST_VERDICT: AtomicI8 = AtomicI8::new(-1);
 
 macro_rules! hb_fail {
@@ -420,6 +422,25 @@ fn angle_vectors(view: Vec2) -> (Vec3, Vec3, Vec3) {
 }
 
 impl CS2 {
+    fn seed_sync_view_angles(&self, local: &Player) -> Vec2 {
+        if let Some(address) = self.offsets.direct.command_view_angles {
+            let angles: Vec2 = self.process.read(address);
+            if angles.is_finite() && angles.x.abs() <= 89.0 && angles.y.abs() <= 360.0 {
+                if !COMMAND_ANGLES_INFOED.swap(true, Ordering::Relaxed) {
+                    utils::info!(
+                        "seed-sync: using current input command view angles at {address:#x}"
+                    );
+                }
+                return angles;
+            }
+        }
+
+        if !COMMAND_ANGLES_FALLBACK_WARNED.swap(true, Ordering::Relaxed) {
+            utils::warn!("seed-sync: current input command angles unavailable; using pawn v_angle");
+        }
+        local.view_angles(self)
+    }
+
     fn missing_required_offsets(&self) -> Vec<&'static str> {
         let so = &self.offsets.seed_sync;
         let required: [(Option<usize>, &str); 20] = [
@@ -503,6 +524,23 @@ impl CS2 {
             .read(weapon_services + self.offsets.weapon_services.active_weapon);
         let index = handle as usize & 0xFFF;
         Player::get_client_entity(self, index)
+    }
+
+    pub(crate) fn seed_sync_shot_marker(&self, local: &Player) -> Option<SeedSyncShotMarker> {
+        let weapon = self.active_weapon_entity(local)?;
+        let recoil_index = self
+            .offsets
+            .seed_sync
+            .recoil_index
+            .map(|offset| self.process.read(weapon + offset))
+            .unwrap_or_default();
+
+        Some(SeedSyncShotMarker {
+            weapon,
+            tick: self.tick_count(local),
+            clip_ammo: self.process.read(weapon + self.offsets.weapon.clip_primary),
+            recoil_index,
+        })
     }
 
     fn firing_mode_float(&self, vdata: usize, off: Option<usize>, fire_mode: i32) -> f32 {
@@ -608,7 +646,6 @@ impl CS2 {
         };
 
         let _ = (
-            base_inaccuracy,
             recovery_time_crouch,
             recovery_time_stand,
             recovery_time_crouch_final,
@@ -636,7 +673,7 @@ impl CS2 {
             move_inaccuracy = move_factor * fm(inaccuracy_move);
         }
 
-        let mut total = turning_inaccuracy + move_inaccuracy;
+        let mut total = base_inaccuracy + turning_inaccuracy + move_inaccuracy;
 
         if move_type != 9 && !on_ground {
             let impulse = self.convar_float(so.convar_jump_impulse, 301.993);
@@ -768,7 +805,7 @@ impl CS2 {
         let model_offset = if self.offsets.game_scene_node.model != 0 {
             self.offsets.game_scene_node.model
         } else {
-            0x160
+            0x1e0
         };
         let model_handle: usize = self.process.read(scene_node + model_offset);
         if model_handle == 0 {
@@ -992,7 +1029,7 @@ impl CS2 {
 
         let so = &self.offsets.seed_sync;
 
-        let cmd_angles = local.view_angles(self);
+        let cmd_angles = self.seed_sync_view_angles(local);
         let tick = self.tick_count(local);
         let item_def_idx: u16 = self.process.read(
             weapon
@@ -1039,11 +1076,13 @@ impl CS2 {
         let mut verdict = true;
         let mut missed_at = 0;
         for tick_offset in 0..NEEDED_TICKS {
-            let future_eye = state.eye + state.velocity * (tick_offset as f32 * TICK_INTERVAL);
+            let candidate_tick_offset = self.trigger.seed_tick_offset + tick_offset;
+            let candidate_eye =
+                state.eye + state.velocity * (candidate_tick_offset as f32 * TICK_INTERVAL);
             let seed = spread_seed(
                 state.cmd_angles.x,
                 state.cmd_angles.y,
-                state.tick - 1 + tick_offset,
+                state.tick + candidate_tick_offset,
             );
             let sv = calculate_spread(
                 seed.wrapping_add(1) as i32,
@@ -1057,7 +1096,7 @@ impl CS2 {
 
             let mut hit_any = false;
             for &(start, end, radius) in &capsules {
-                if ray_hits_capsule(future_eye, dir, start, end, radius) {
+                if ray_hits_capsule(candidate_eye, dir, start, end, radius) {
                     hit_any = true;
                     break;
                 }
@@ -1074,12 +1113,13 @@ impl CS2 {
         if LAST_VERDICT.swap(cur, Ordering::Relaxed) != cur {
             let outcome = if verdict { "HIT" } else { "MISS" };
             utils::info!(
-                "seed-sync {outcome}: item={} inaccuracy={:.4} spread={:.4} recoil={} tick={}{}",
+                "seed-sync {outcome}: item={} inaccuracy={:.4} spread={:.4} recoil={} tick={} seed_offset={}{}",
                 state.item_def_idx,
                 state.inaccuracy,
                 state.spread,
                 state.recoil_index,
                 state.tick,
+                self.trigger.seed_tick_offset,
                 if verdict {
                     String::new()
                 } else {
@@ -1104,4 +1144,12 @@ pub struct SeedSyncState {
     forward: Vec3,
     right: Vec3,
     up: Vec3,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SeedSyncShotMarker {
+    pub weapon: usize,
+    pub tick: i32,
+    pub clip_ammo: i32,
+    pub recoil_index: i32,
 }

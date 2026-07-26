@@ -59,6 +59,25 @@ impl CS2 {
                 + 0x14,
         ) as usize;
 
+        offsets.direct.command_view_angles = self
+            .process
+            .scan("48 89 05 ? ? ? ? 0F 57 C0 0F 11 05", offsets.library.client)
+            .and_then(|input| {
+                let input = self.process.get_relative_address(input, 0x03, 0x07);
+                let instruction = self
+                    .process
+                    .scan("F2 42 0F 10 84 28 ? ? ? ?", offsets.library.client)?;
+                let member_offset: i32 = self.process.read(instruction + 0x06);
+                (0..0x10000)
+                    .contains(&member_offset)
+                    .then_some(input + member_offset as usize)
+            });
+        if offsets.direct.command_view_angles.is_none() {
+            utils::warn!(
+                "could not find current input command view angles; seed-sync will use pawn view angles"
+            );
+        }
+
         let Some(view_matrix) = self
             .process
             .scan("C6 83 ? ? 00 00 01 4C 8D 05", offsets.library.client)
@@ -171,7 +190,8 @@ impl CS2 {
         offsets.game_scene_node.dormant = client.get("CGameSceneNode", "m_bDormant")?;
         offsets.game_scene_node.origin = client.get("CGameSceneNode", "m_vecAbsOrigin")?;
         offsets.game_scene_node.model_state = client.get("CSkeletonInstance", "m_modelState")?;
-        offsets.game_scene_node.model = client.get("CGameSceneNode", "m_model").unwrap_or(0);
+        offsets.game_scene_node.model =
+            offsets.game_scene_node.model_state + client.get("CModelState", "m_hModel")?;
 
         offsets.model_state.skeleton_instance =
             client.get("CBodyComponentSkeletonInstance", "m_skeletonInstance")?;

@@ -20,6 +20,7 @@ pub struct InterfaceOffsets {
 pub struct DirectOffsets {
     pub local_player: usize,
     pub button_state: usize,
+    pub command_view_angles: Option<usize>,
     pub view_matrix: usize,
     pub sdl_window: usize,
     pub planted_c4: usize,
@@ -76,8 +77,8 @@ pub struct PawnOffsets {
 pub struct GameSceneNodeOffsets {
     pub dormant: usize,     // bool (m_bDormant)
     pub origin: usize,      // Vec3 (m_vecAbsOrigin)
-    pub model_state: usize, // Pointer -> ModelState (m_modelState)
-    pub model: usize,       // Pointer -> CModel
+    pub model_state: usize, // Embedded CModelState (m_modelState)
+    pub model: usize,       // Scene-node-relative CStrongHandle (m_modelState + m_hModel)
 }
 
 #[derive(Default)]
