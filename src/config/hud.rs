@@ -65,6 +65,7 @@ impl Default for CrosshairConfig {
 #[serde(default)]
 pub struct TrailConfig {
     pub enabled: bool,
+    pub inferno_poly: bool,
     pub smoke: Color32,
     pub molotov: Color32,
     pub incendiary: Color32,
@@ -77,6 +78,7 @@ impl Default for TrailConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            inferno_poly: true,
             smoke: Color32::LIGHT_GRAY,
             molotov: Color32::RED,
             incendiary: Color32::ORANGE,
